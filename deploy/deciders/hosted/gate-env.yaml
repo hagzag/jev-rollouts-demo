@@ -1,0 +1,17 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: jev-gate
+spec:
+  template:
+    spec:
+      containers:
+        - name: jev-gate
+          env:
+            - name: DECISION_URL
+              value: https://jev.opendef.com/api/evaluate
+            - name: DECISION_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: jev-decider-credentials
+                  key: DECISION_API_KEY

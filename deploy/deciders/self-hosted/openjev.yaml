@@ -1,0 +1,49 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: openjev
+  labels:
+    app: openjev
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: openjev
+  template:
+    metadata:
+      labels:
+        app: openjev
+    spec:
+      containers:
+        - name: openjev
+          image: openjev:local       # built from SiliconLabAI/OpenJev by `task decider:self-hosted`
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 3001
+          envFrom:
+            - configMapRef:
+                name: openjev-config       # OPENJEV_MODEL, OPENAI_BASE_URL
+            - secretRef:
+                name: openjev-credentials  # OPENAI_API_KEY
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: http
+            initialDelaySeconds: 5
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: openjev
+spec:
+  selector:
+    app: openjev
+  ports:
+    - name: http
+      port: 3001
+      targetPort: http

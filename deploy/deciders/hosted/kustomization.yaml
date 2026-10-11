@@ -1,0 +1,10 @@
+# Option 1: the hosted OpenJev at jev.opendef.com.
+# Your OpenAI-compatible provider key lives in your OpenJev account settings;
+# the cluster only holds the OpenJev API key (secret created by `task decider:hosted`).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: jev-system
+resources:
+  - ../../gate
+patches:
+  - path: gate-env.yaml

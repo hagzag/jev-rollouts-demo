@@ -1,0 +1,37 @@
+apiVersion: argoproj.io/v1alpha1
+kind: AnalysisTemplate
+metadata:
+  name: jev-gate
+spec:
+  args:
+    - name: canary-service
+    - name: stable-service
+    - name: gate-url
+      value: http://jev-gate.jev-system.svc.cluster.local:8080/evaluate
+  metrics:
+    # 1. The classic gate: "did the canary return errors?"
+    #    The same thing a Prometheus success-rate query would compute.
+    - name: success-rate
+      count: 1
+      successCondition: result >= 0.95
+      failureCondition: result < 0.95
+      provider:
+        web:
+          url: "{{args.gate-url}}?decide=false&canary=http://{{args.canary-service}}.demo.svc.cluster.local&stable=http://{{args.stable-service}}.demo.svc.cluster.local"
+          timeoutSeconds: 30
+          jsonPath: "{$.success_rate}"
+
+    # 2. The Jev-style gate: one noul question, one calibrated-ish probability.
+    #    p_block < 0.3  -> Successful
+    #    p_block > 0.7  -> Failed (rollout aborts)
+    #    in between     -> neither condition matches, Argo records Inconclusive
+    #                      and pauses the rollout for a human
+    - name: jev-decision
+      count: 1
+      successCondition: result < 0.3
+      failureCondition: result > 0.7
+      provider:
+        web:
+          url: "{{args.gate-url}}?canary=http://{{args.canary-service}}.demo.svc.cluster.local&stable=http://{{args.stable-service}}.demo.svc.cluster.local"
+          timeoutSeconds: 30
+          jsonPath: "{$.p_block}"

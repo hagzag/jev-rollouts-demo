@@ -1,0 +1,53 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: jev-gate
+  labels:
+    app: jev-gate
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: jev-gate
+  template:
+    metadata:
+      labels:
+        app: jev-gate
+    spec:
+      containers:
+        - name: jev-gate
+          image: jev-gate:local      # built and imported by `task gate:build`
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            # Overridden by the decider overlay you pick (hosted / self-hosted).
+            - name: DECISION_URL
+              value: http://jev-decider:8080/api/evaluate
+            - name: SLO_SUCCESS_RATE
+              value: "0.95"
+            - name: SLO_P95_MS
+              value: "1500"
+            - name: PROBES
+              value: "20"
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: jev-gate
+spec:
+  selector:
+    app: jev-gate
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http

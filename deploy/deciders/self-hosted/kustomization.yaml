@@ -1,0 +1,10 @@
+# Option 2 (advanced): run OpenJev inside the cluster. It calls your
+# OpenAI-compatible provider directly; nothing goes through opendef.com.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: jev-system
+resources:
+  - ../../gate
+  - openjev.yaml
+patches:
+  - path: gate-env.yaml

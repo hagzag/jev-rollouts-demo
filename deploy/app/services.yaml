@@ -1,0 +1,38 @@
+# root: what the browser hits (all pods, so traffic splits by replica count)
+apiVersion: v1
+kind: Service
+metadata:
+  name: rollouts-demo-root
+spec:
+  selector:
+    app: rollouts-demo
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+---
+# stable / canary: Argo Rollouts adds a rollouts-pod-template-hash selector to
+# each, so the gate can probe the two versions separately.
+apiVersion: v1
+kind: Service
+metadata:
+  name: rollouts-demo-stable
+spec:
+  selector:
+    app: rollouts-demo
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: rollouts-demo-canary
+spec:
+  selector:
+    app: rollouts-demo
+  ports:
+    - name: http
+      port: 80
+      targetPort: http

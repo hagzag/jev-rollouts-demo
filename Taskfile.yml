@@ -1,0 +1,190 @@
+version: '3'
+
+# Jev-style canary gate for Argo Rollouts on a local k3d cluster.
+# Requirements: docker, k3d, kubectl, task, kubectl-argo-rollouts plugin.
+
+dotenv: ['.env']
+
+vars:
+  CLUSTER: jev-demo
+  ROLLOUTS_VERSION: v1.8.3
+  APP_NS: demo
+  GATE_NS: jev-system
+  DECIDER_MODE: '{{.DECIDER | default "hosted"}}'   # from .env DECIDER: hosted | self-hosted | fake
+
+tasks:
+  default:
+    cmds: [task --list]
+    silent: true
+
+  # ------------------------------------------------------------------ setup
+  up:
+    desc: Create the cluster, install Argo Rollouts, deploy the gate, decider and demo app
+    cmds:
+      - task: preflight
+      - task: cluster
+      - task: rollouts:install
+      - task: gate:build
+      - task: 'decider:{{.DECIDER_MODE}}'
+      - task: app:deploy
+      - cmd: |
+          echo
+          echo "Ready. Demo UI: http://localhost:8080   decider: {{.DECIDER_MODE}}"
+          echo "Watch in another terminal:  task watch"
+          echo "Then run:  task scenario:green | task scenario:red | task scenario:blue"
+        silent: true
+
+  preflight:
+    desc: Check required tools and .env
+    silent: true
+    cmds:
+      - for: [docker, k3d, kubectl]
+        cmd: |
+          command -v {{.ITEM}} >/dev/null || { echo "missing tool {{.ITEM}}"; exit 1; }
+      - |
+        kubectl argo rollouts version --short >/dev/null 2>&1 || { echo "missing kubectl-argo-rollouts plugin (brew install argoproj/tap/kubectl-argo-rollouts)"; exit 1; }
+      - |
+        test -f .env || { echo "no .env file - copy .env.example to .env and fill it in"; exit 1; }
+
+  cluster:
+    desc: Create the k3d cluster (localhost:8080 -> Traefik)
+    status:
+      - k3d cluster get {{.CLUSTER}}
+    cmds:
+      - k3d cluster create {{.CLUSTER}} --agents 0 -p "8080:80@loadbalancer" --wait
+
+  rollouts:install:
+    desc: Install the Argo Rollouts controller
+    cmds:
+      - kubectl create namespace argo-rollouts --dry-run=client -o yaml | kubectl apply -f -
+      - kubectl apply -n argo-rollouts -f https://github.com/argoproj/argo-rollouts/releases/download/{{.ROLLOUTS_VERSION}}/install.yaml
+      - kubectl -n argo-rollouts rollout status deploy/argo-rollouts --timeout=180s
+
+  gate:build:
+    desc: Build the jev-gate image and import it into the cluster
+    cmds:
+      - docker build -t jev-gate:local gate
+      - k3d image import jev-gate:local -c {{.CLUSTER}}
+
+  # ---------------------------------------------------------------- deciders
+  decider:hosted:
+    desc: "Option 1: use the hosted OpenJev (jev.opendef.com) - needs OPENJEV_API_KEY in .env"
+    preconditions:
+      - sh: test -n "$OPENJEV_API_KEY"
+        msg: "OPENJEV_API_KEY is empty in .env - see README, Option 1"
+    cmds:
+      - kubectl create namespace {{.GATE_NS}} --dry-run=client -o yaml | kubectl apply -f -
+      - kubectl -n {{.GATE_NS}} create secret generic jev-decider-credentials
+          --from-literal=DECISION_API_KEY="$OPENJEV_API_KEY" --dry-run=client -o yaml | kubectl apply -f -
+      - kubectl apply -k deploy/deciders/hosted
+      - kubectl -n {{.GATE_NS}} rollout restart deploy/jev-gate
+      - kubectl -n {{.GATE_NS}} rollout status deploy/jev-gate --timeout=120s
+
+  decider:self-hosted:
+    desc: "Option 2 (advanced): run OpenJev in the cluster - needs OPENAI_API_KEY in .env"
+    preconditions:
+      - sh: test -n "$OPENAI_API_KEY"
+        msg: "OPENAI_API_KEY is empty in .env - see README, Option 2"
+    cmds:
+      - docker build -t openjev:local -f deploy/deciders/self-hosted/openjev.Dockerfile deploy/deciders/self-hosted
+      - k3d image import openjev:local -c {{.CLUSTER}}
+      - kubectl create namespace {{.GATE_NS}} --dry-run=client -o yaml | kubectl apply -f -
+      - kubectl -n {{.GATE_NS}} create secret generic openjev-credentials
+          --from-literal=OPENAI_API_KEY="$OPENAI_API_KEY" --dry-run=client -o yaml | kubectl apply -f -
+      - kubectl -n {{.GATE_NS}} create configmap openjev-config
+          --from-literal=OPENJEV_MODEL="${OPENJEV_MODEL:-gpt-4o-mini}"
+          --from-literal=OPENAI_BASE_URL="${OPENAI_BASE_URL:-}" --dry-run=client -o yaml | kubectl apply -f -
+      - kubectl apply -k deploy/deciders/self-hosted
+      - kubectl -n {{.GATE_NS}} rollout restart deploy/jev-gate deploy/openjev
+      - kubectl -n {{.GATE_NS}} rollout status deploy/openjev --timeout=300s
+      - kubectl -n {{.GATE_NS}} rollout status deploy/jev-gate --timeout=120s
+
+  decider:fake:
+    desc: Deterministic decider (no model) for CI and offline testing
+    cmds:
+      - kubectl apply -k deploy/deciders/fake
+      - kubectl -n {{.GATE_NS}} rollout restart deploy/jev-gate
+      - kubectl -n {{.GATE_NS}} rollout status deploy/jev-decider --timeout=120s
+      - kubectl -n {{.GATE_NS}} rollout status deploy/jev-gate --timeout=120s
+
+  # --------------------------------------------------------------------- app
+  app:deploy:
+    desc: Deploy the rollouts-demo app (stable = yellow) and the AnalysisTemplate
+    cmds:
+      - kubectl apply -k deploy/app
+      - kubectl argo rollouts status rollouts-demo -n {{.APP_NS}} --timeout 180s
+
+  # --------------------------------------------------------------- scenarios
+  scenario:green:
+    desc: "Release a healthy version (argoproj/rollouts-demo:green) -> expect Promote"
+    cmds:
+      - task: _release
+        vars: {IMAGE: 'argoproj/rollouts-demo:green', ENV: '[]'}
+
+  scenario:red:
+    desc: "Release a broken version (argoproj/rollouts-demo:bad-red, ~85% HTTP 500) -> expect Abort"
+    cmds:
+      - task: _release
+        vars: {IMAGE: 'argoproj/rollouts-demo:bad-red', ENV: '[]'}
+
+  scenario:blue:
+    desc: "Release a slower version (blue + LATENCY=1s, no errors) -> expect Inconclusive (pause)"
+    cmds:
+      - task: _release
+        vars: {IMAGE: 'argoproj/rollouts-demo:blue', ENV: '[{"name":"LATENCY","value":"1"}]'}
+
+  _release:
+    internal: true
+    cmds:
+      # Replace the whole container spec so env vars from a previous scenario don't leak.
+      - |
+        kubectl -n {{.APP_NS}} patch rollout rollouts-demo --type=json -p '[
+          {"op":"replace","path":"/spec/template/spec/containers/0","value":{
+            "name":"rollouts-demo","image":"{{.IMAGE}}",
+            "ports":[{"name":"http","containerPort":8080}],
+            "env":{{.ENV}},
+            "readinessProbe":{"httpGet":{"path":"/","port":"http"}},
+            "resources":{"requests":{"cpu":"5m","memory":"32Mi"}}}}]'
+      - cmd: echo "Released {{.IMAGE}}. Follow it with  task watch  and see the gate with  task gate:logs"
+        silent: true
+
+  # ---------------------------------------------------------------- operate
+  watch:
+    desc: Watch the rollout live
+    cmds:
+      - kubectl argo rollouts get rollout rollouts-demo -n {{.APP_NS}} --watch
+
+  analysis:
+    desc: Show the latest AnalysisRun (measurements and phase per metric)
+    cmds:
+      - kubectl -n {{.APP_NS}} get analysisrun --sort-by=.metadata.creationTimestamp
+      - kubectl -n {{.APP_NS}} get analysisrun --sort-by=.metadata.creationTimestamp -o name | tail -1 | xargs kubectl -n {{.APP_NS}} get -o jsonpath='{range .status.metricResults[*]}{.name}{"\t"}{.phase}{"\t"}{.measurements[-1].value}{"\n"}{end}'
+
+  gate:logs:
+    desc: Tail the gate's decisions
+    cmds:
+      - kubectl -n {{.GATE_NS}} logs deploy/jev-gate -f --tail=20
+
+  promote:
+    desc: Human decision on an Inconclusive pause - continue the rollout
+    cmds:
+      - kubectl argo rollouts promote rollouts-demo -n {{.APP_NS}}
+
+  abort:
+    desc: Human decision on an Inconclusive pause - roll back to stable
+    cmds:
+      - kubectl argo rollouts abort rollouts-demo -n {{.APP_NS}}
+
+  test:local:
+    desc: Offline proof of the gate logic (no cluster) - needs Go and python3
+    cmds:
+      - mkdir -p .bin
+      - test -d .bin/rollouts-demo-src || git clone -q --depth 1 https://github.com/argoproj/rollouts-demo.git .bin/rollouts-demo-src
+      - cd .bin/rollouts-demo-src && CGO_ENABLED=0 go build -o ../rollouts-demo .
+      - cd gate && CGO_ENABLED=0 go build -o ../.bin/jev-gate .
+      - hack/local-gate-test.sh .bin/rollouts-demo .bin/jev-gate
+
+  down:
+    desc: Delete the cluster
+    cmds:
+      - k3d cluster delete {{.CLUSTER}}

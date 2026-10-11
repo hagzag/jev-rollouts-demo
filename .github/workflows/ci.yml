@@ -1,0 +1,25 @@
+name: ci
+on: [push, pull_request]
+jobs:
+  gate-logic:
+    # Offline proof: real rollouts-demo app + jev-gate + deterministic fake decider
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with: {go-version: stable}
+      - uses: arduino/setup-task@v2
+      - run: task test:local
+  e2e-fake:
+    # Full k3d + Argo Rollouts run with the fake decider; asserts the three outcomes
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: arduino/setup-task@v2
+      - run: |
+          curl -sSL https://raw.githubusercontent.com/k3d-io/k3d/main/install.sh | bash
+          curl -sSLo /usr/local/bin/kubectl-argo-rollouts https://github.com/argoproj/argo-rollouts/releases/download/v1.8.3/kubectl-argo-rollouts-linux-amd64
+          chmod +x /usr/local/bin/kubectl-argo-rollouts
+          cp .env.example .env
+      - run: DECIDER=fake task up
+      - run: hack/e2e.sh

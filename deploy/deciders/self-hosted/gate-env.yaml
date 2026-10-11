@@ -1,0 +1,19 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: jev-gate
+spec:
+  template:
+    spec:
+      containers:
+        - name: jev-gate
+          env:
+            - name: DECISION_URL
+              value: http://openjev:3001/api/evaluate
+            - name: DECISION_MODE
+              value: parallel        # OpenJev: one tiny {p} call per option
+            - name: DECISION_MODEL
+              valueFrom:
+                configMapKeyRef:
+                  name: openjev-config
+                  key: OPENJEV_MODEL

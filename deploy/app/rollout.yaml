@@ -1,0 +1,47 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Rollout
+metadata:
+  name: rollouts-demo
+spec:
+  replicas: 5
+  revisionHistoryLimit: 3
+  selector:
+    matchLabels:
+      app: rollouts-demo
+  template:
+    metadata:
+      labels:
+        app: rollouts-demo
+    spec:
+      containers:
+        - name: rollouts-demo
+          # the official Argo Rollouts demo image, unmodified; tasks swap the tag
+          image: argoproj/rollouts-demo:yellow
+          ports:
+            - name: http
+              containerPort: 8080
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+          resources:
+            requests:
+              cpu: 5m
+              memory: 32Mi
+  strategy:
+    canary:
+      canaryService: rollouts-demo-canary
+      stableService: rollouts-demo-stable
+      steps:
+        - setWeight: 20          # 1 of 5 pods runs the new version
+        - pause: {duration: 20s}
+        - analysis:              # the gate: classic metric + Jev-style decision
+            templates:
+              - templateName: jev-gate
+            args:
+              - name: canary-service
+                value: rollouts-demo-canary
+              - name: stable-service
+                value: rollouts-demo-stable
+        - setWeight: 60
+        - pause: {duration: 10s}

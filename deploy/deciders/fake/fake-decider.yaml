@@ -1,0 +1,36 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: jev-decider
+  labels:
+    app: jev-decider
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: jev-decider
+  template:
+    metadata:
+      labels:
+        app: jev-decider
+    spec:
+      containers:
+        - name: fake-decider
+          image: jev-gate:local
+          imagePullPolicy: IfNotPresent
+          args: ["fake-decider"]
+          ports:
+            - name: http
+              containerPort: 8080
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: jev-decider
+spec:
+  selector:
+    app: jev-decider
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http

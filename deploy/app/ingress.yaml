@@ -1,0 +1,17 @@
+# Traefik ships with k3d; the cluster maps localhost:8080 -> Traefik :80
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: rollouts-demo
+spec:
+  ingressClassName: traefik
+  rules:
+    - http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: rollouts-demo-root
+                port:
+                  name: http
