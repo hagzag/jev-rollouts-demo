@@ -8,9 +8,9 @@ A classic canary gate asks one question: *did the new version return errors?* Th
 |---|---|---|---|---|
 | `argoproj/rollouts-demo:green` | healthy | ✅ Successful | < 0.3 ✅ Successful | **Promote** |
 | `argoproj/rollouts-demo:bad-red` | ~85% HTTP 500 | ❌ Failed | > 0.7 ❌ Failed | **Abort** (roll back) |
-| `argoproj/rollouts-demo:blue` + `LATENCY=1` | 1s slower, zero errors | ✅ Successful | 0.3–0.7 ❓ | **Inconclusive** → pauses for a human |
+| `argoproj/rollouts-demo:blue` + `LATENCY=1` | 1s slower, zero errors | ✅ Successful | **the model's call** | Promote, Abort, or Inconclusive (pause): see `task evidence` |
 
-The interesting row is the last one. A success-rate check can't see a release that's slow but never fails. The middle band of the probability maps to Argo's built-in **Inconclusive** state, so the rollout stops and waits for a person instead of guessing.
+The interesting row is the last one. A success-rate check can't see a release that's slow but never fails, so the decision is left to the model, and the middle band of its probability maps to Argo's built-in **Inconclusive** state (the rollout stops and waits for a person). Whether a given model actually *uses* that middle band is exactly what `task evidence` measures: it holds each canary and asks the same question 10 times.
 
 Everything runs locally on [`k3d`](https://k3d.io). The app is the official, unmodified [Argo Rollouts demo image](https://github.com/argoproj/rollouts-demo); only its tag and env change per scenario.
 
@@ -108,7 +108,7 @@ Then, one at a time, waiting for each to settle:
 |---|---|---|---|
 | 1 | `task scenario:green` | Analysis ✔ → Healthy, all pods green | [`practice/01-green-promote`](practice/01-green-promote/README.md) |
 | 2 | `task scenario:red` | Analysis ✖ → Degraded, rolled back to green | [`practice/02-red-abort`](practice/02-red-abort/README.md) |
-| 3 | `task scenario:blue` | Analysis `?` → Paused, waiting for you | [`practice/03-blue-inconclusive`](practice/03-blue-inconclusive/README.md) |
+| 3 | `task scenario:blue` | Depends on the model: run it twice and compare | [`practice/03-blue-inconclusive`](practice/03-blue-inconclusive/README.md) |
 
 Useful while it runs:
 

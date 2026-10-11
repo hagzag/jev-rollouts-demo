@@ -184,6 +184,11 @@ tasks:
       - cd gate && CGO_ENABLED=0 go build -o ../.bin/jev-gate .
       - hack/local-gate-test.sh .bin/rollouts-demo .bin/jev-gate
 
+  evidence:
+    desc: Run green -> red -> blue and save logs/results under evidence/
+    cmds:
+      - hack/run-scenarios.sh
+
   down:
     desc: Delete the cluster
     cmds:
