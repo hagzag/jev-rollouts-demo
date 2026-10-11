@@ -59,7 +59,9 @@ cp .env.example .env   # then pick Option 1 or Option 2 below
 [OpenJev](https://jev.opendef.com/) is an open approximation of TypeSafe Jev: same `state` + typed `questions` request, same `choice` / `score` / `noul` types. It scores each option with an OpenAI-compatible model **you** bring, then normalizes the result.
 
 1. Go to **https://jev.opendef.com** and click **Start free with Google**.
-2. In **Settings**, add your OpenAI-compatible provider credentials (an OpenAI key works; `gpt-4o-mini` is a good, cheap default). Your provider key stays in your OpenJev account, not in the cluster.
+2. In **Settings**, add an LLM configuration with your OpenAI-compatible provider key (an OpenAI key works; `gpt-4o-mini` is a good, cheap default) and **make it the default**. The API calls use your account's default configuration; your provider key stays in your OpenJev account, not in the cluster, so `OPENAI_API_KEY` in `.env` is not used in this option.
+
+   If the gate logs say `No default LLM configuration with a provider key for this account`, this step is missing.
 3. In **API keys**, create a key (it starts with `ojv_live_`).
 4. Optional: try the question in the OpenJev **Playground** first. Paste a state like the one in [`practice/03-blue-inconclusive`](practice/03-blue-inconclusive/README.md) and a `noul` question.
 5. Put the key in `.env`:
